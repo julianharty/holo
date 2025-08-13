@@ -8,12 +8,19 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Unstructured};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let mut u = Unstructured::new(data);
+    let mut u = Unstructured::new(&[4u8]); // Unstructured::new(data);
+    let mut v = Unstructured::new(&[0u8]); // Unstructured::new(data);
+    let mut w = Unstructured::new(&[0u8]); // Unstructured::new(data);
+    let mut x = Unstructured::new(&[0u8]); // Unstructured::new(data);
+    let _zero = 0u8;
+
+    eprintln!("***************** Hardcoded data on the next line is encoded to replace the fuzz data.");
+    eprintln!("{}", hex::encode(data));
 
     if let Ok(mut buf) = BytesArbitrary::arbitrary(&mut u)
-        && let Ok(cxt) = DecodeCxt::arbitrary(&mut u)
-        && let Ok(attr_type) = AttrType::arbitrary(&mut u)
-        && let Ok(four_byte_asn_cap) = bool::arbitrary(&mut u)
+        && let Ok(cxt) = DecodeCxt::arbitrary(&mut v)
+        && let Ok(attr_type) = AttrType::arbitrary(&mut w)
+        && let Ok(four_byte_asn_cap) = bool::arbitrary(&mut x)
     {
         let _ = AsPath::decode(
             &mut buf.0,
@@ -23,4 +30,4 @@ fuzz_target!(|data: &[u8]| {
             &mut None,
         );
     }
-});
+}); 
