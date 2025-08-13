@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT
 //
 
+mod decode;
 mod keepalive;
 mod notification;
 mod open;
 mod route_refresh;
 mod update;
-mod decode;
 
 use holo_bgp::neighbor::PeerType;
 use holo_bgp::packet::message::{

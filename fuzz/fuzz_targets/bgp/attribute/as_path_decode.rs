@@ -14,7 +14,9 @@ fuzz_target!(|data: &[u8]| {
     let mut x = Unstructured::new(&[0u8]); // Unstructured::new(data);
     let _zero = 0u8;
 
-    eprintln!("***************** Hardcoded data on the next line is encoded to replace the fuzz data.");
+    eprintln!(
+        "***************** Hardcoded data on the next line is encoded to replace the fuzz data."
+    );
     eprintln!("{}", hex::encode(data));
 
     if let Ok(mut buf) = BytesArbitrary::arbitrary(&mut u)
@@ -30,4 +32,4 @@ fuzz_target!(|data: &[u8]| {
             &mut None,
         );
     }
-}); 
+});

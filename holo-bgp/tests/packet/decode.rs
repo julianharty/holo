@@ -1,8 +1,8 @@
+use arbitrary::{Arbitrary, Unstructured};
 use holo_bgp::packet::attribute::AsPath;
 use holo_bgp::packet::consts::AttrType;
 use holo_bgp::packet::message::DecodeCxt;
 use holo_utils::arbitrary::BytesArbitrary;
-use arbitrary::{Arbitrary, Unstructured};
 
 #[test]
 fn small_buffer() {
@@ -10,7 +10,7 @@ fn small_buffer() {
     // It's a proof-of-concept to explore the feasibility of creating
     // unit tests for issues found by fuzzing inputs. It should run much
     // faster than the fuzz tests.
-    let mut u = Unstructured::new(&[4u8]); 
+    let mut u = Unstructured::new(&[4u8]);
     let mut v = Unstructured::new(&[0u8]);
     let mut w = Unstructured::new(&[0u8]);
     let mut x = Unstructured::new(&[0u8]);
