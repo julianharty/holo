@@ -59,7 +59,7 @@ pub type NbProviderReceiver = UnboundedReceiver<api::provider::Notification>;
 /// Base northbound provider trait.
 pub trait ProviderBase
 where
-    Self: 'static + Sized + Send,
+    Self: 'static + Sized,
 {
     fn yang_modules() -> &'static [&'static str];
 
@@ -216,10 +216,9 @@ where
     Provider: configuration::Provider + state::Provider + rpc::Provider,
 {
     let callbacks = [
-        <Provider as configuration::Provider>::callbacks()
-            .map(|cbs| cbs.keys()),
-        <Provider as rpc::Provider>::callbacks().map(|cbs| cbs.keys()),
-        <Provider as state::Provider>::callbacks().map(|cbs| cbs.keys()),
+        Some(<Provider as configuration::Provider>::callbacks().keys()),
+        Some(<Provider as rpc::Provider>::callbacks().keys()),
+        Some(<Provider as state::Provider>::callbacks().keys()),
         <Provider as configuration::Provider>::nested_callbacks(),
         <Provider as rpc::Provider>::nested_callbacks(),
         <Provider as state::Provider>::nested_callbacks(),
@@ -235,7 +234,7 @@ where
 // ===== global functions =====
 
 // Processes a northbound message coming from the Holo daemon.
-pub async fn process_northbound_msg<Provider>(
+pub fn process_northbound_msg<Provider>(
     provider: &mut Provider,
     resources: &mut Vec<Option<Provider::Resource>>,
     request: api::daemon::Request,
@@ -253,7 +252,7 @@ pub async fn process_northbound_msg<Provider>(
         }
         api::daemon::Request::Validate(request) => {
             let response =
-                configuration::process_validate(provider, request.config).await;
+                configuration::process_validate(provider, request.config);
             if let Some(responder) = request.responder {
                 responder.send(response).unwrap();
             }
@@ -266,20 +265,19 @@ pub async fn process_northbound_msg<Provider>(
                 request.new_config,
                 request.changes,
                 resources,
-            )
-            .await;
+            );
             if let Some(responder) = request.responder {
                 responder.send(response).unwrap();
             }
         }
         api::daemon::Request::Get(request) => {
-            let response = state::process_get(provider, request.path).await;
+            let response = state::process_get(provider, request.path);
             if let Some(responder) = request.responder {
                 responder.send(response).unwrap();
             }
         }
         api::daemon::Request::Rpc(request) => {
-            let response = rpc::process_rpc(provider, request.data).await;
+            let response = rpc::process_rpc(provider, request.data);
             if let Some(responder) = request.responder {
                 responder.send(response).unwrap();
             }

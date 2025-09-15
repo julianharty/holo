@@ -9,13 +9,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use holo_protocol::{
     InstanceChannelsTx, InstanceShared, MessageReceiver, ProtocolInstance,
 };
 use holo_utils::ibus::IbusMsg;
 use holo_utils::ip::AddressFamily;
+use holo_utils::mac_addr::MacAddr;
 use holo_utils::protocol::Protocol;
 use holo_utils::southbound::InterfaceFlags;
 use ipnetwork::IpNetwork;
@@ -60,7 +60,7 @@ pub struct InterfaceSys {
     // Interface IP addresses.
     pub addresses: BTreeSet<IpNetwork>,
     // interface MAC Address
-    pub mac_address: [u8; 6],
+    pub mac_address: MacAddr,
 }
 
 #[derive(Debug, Default)]
@@ -154,7 +154,6 @@ impl Interface {
     }
 }
 
-#[async_trait]
 impl ProtocolInstance for Interface {
     const PROTOCOL: Protocol = Protocol::VRRP;
 
@@ -163,7 +162,7 @@ impl ProtocolInstance for Interface {
     type ProtocolInputChannelsTx = ProtocolInputChannelsTx;
     type ProtocolInputChannelsRx = ProtocolInputChannelsRx;
 
-    async fn new(
+    fn new(
         name: String,
         shared: InstanceShared,
         tx: InstanceChannelsTx<Interface>,
@@ -180,13 +179,13 @@ impl ProtocolInstance for Interface {
         }
     }
 
-    async fn init(&mut self) {
+    fn init(&mut self) {
         // Request system information about all interfaces.
         self.tx.ibus.interface_sub(None, None);
     }
 
-    async fn process_ibus_msg(&mut self, msg: IbusMsg) {
-        if let Err(error) = process_ibus_msg(self, msg).await {
+    fn process_ibus_msg(&mut self, msg: IbusMsg) {
+        if let Err(error) = process_ibus_msg(self, msg) {
             error.log();
         }
     }
@@ -247,7 +246,6 @@ impl ProtocolInstance for Interface {
 
 // ===== impl ProtocolInputChannelsRx =====
 
-#[async_trait]
 impl MessageReceiver<ProtocolInputMsg> for ProtocolInputChannelsRx {
     async fn recv(&mut self) -> Option<ProtocolInputMsg> {
         tokio::select! {
@@ -264,7 +262,7 @@ impl MessageReceiver<ProtocolInputMsg> for ProtocolInputChannelsRx {
 
 // ===== helper functions =====
 
-async fn process_ibus_msg(
+fn process_ibus_msg(
     interface: &mut Interface,
     msg: IbusMsg,
 ) -> Result<(), Error> {

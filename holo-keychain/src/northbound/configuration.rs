@@ -7,7 +7,6 @@
 use std::sync::{Arc, LazyLock as Lazy};
 use std::time::Duration;
 
-use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset, Utc};
 use enum_as_inner::EnumAsInner;
 use holo_northbound::configuration::{
@@ -411,17 +410,16 @@ fn load_callbacks() -> Callbacks<Master> {
 
 // ===== impl Master =====
 
-#[async_trait]
 impl Provider for Master {
     type ListEntry = ListEntry;
     type Event = Event;
     type Resource = Resource;
 
-    fn callbacks() -> Option<&'static Callbacks<Master>> {
-        Some(&CALLBACKS)
+    fn callbacks() -> &'static Callbacks<Master> {
+        &CALLBACKS
     }
 
-    async fn process_event(&mut self, event: Event) {
+    fn process_event(&mut self, event: Event) {
         match event {
             Event::KeychainChange(name) => {
                 let keychain = self.keychains.get_mut(&name).unwrap();

@@ -34,7 +34,6 @@ repository = "https://github.com/holo-routing/holo"
 [workspace.dependencies]
 arbitrary = { version = "1.4.1", features = ["derive"] }
 arc-swap = "1.7"
-async-trait = "0.1"
 base64 = "0.22"
 bitflags = { version = "2.9", features = ["serde"] }
 bytes = { version = "1.10", features = ["serde"] }
@@ -70,6 +69,7 @@ prost = "0.13"
 rand = { version = "0.9", features = ["thread_rng"] }
 regex = "1.11"
 rtnetlink = "0.17"
+rustc_tools_util = "0.4.2"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_with = "3.14"
@@ -79,12 +79,15 @@ similar = "2.7"
 smallvec = { version = "1.15", features = ["serde"] }
 socket2 = { version = "0.5", features = ["all"] }
 sysctl = "0.6"
-tokio = { version = "1.46", features = ["full"] }
+tokio = { version = "1.46", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tonic = { version = "0.13", features = ["tls-ring"] }
 tonic-build = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-yang3 = { version = "0.17" }
+yang3 = { version = "0.18" }
+
+[workspace.metadata.spellcheck]
+config = "spellcheck.toml"
 
 [workspace.lints.rust]
 rust_2018_idioms = { level = "warn", priority = -1 }

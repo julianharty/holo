@@ -8,7 +8,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::net::IpAddr;
 use std::sync::{Arc, LazyLock as Lazy};
 
-use async_trait::async_trait;
 use enum_as_inner::EnumAsInner;
 use holo_northbound::configuration::{
     self, Callbacks, CallbacksBuilder, ConfigChanges, Provider,
@@ -1101,7 +1100,6 @@ fn load_validation_callbacks() -> ValidationCallbacks {
 
 // ===== impl Master =====
 
-#[async_trait]
 impl Provider for Master {
     type ListEntry = ListEntry;
     type Event = Event;
@@ -1111,8 +1109,8 @@ impl Provider for Master {
         Some(&VALIDATION_CALLBACKS)
     }
 
-    fn callbacks() -> Option<&'static Callbacks<Master>> {
-        Some(&CALLBACKS)
+    fn callbacks() -> &'static Callbacks<Master> {
+        &CALLBACKS
     }
 
     fn nested_callbacks() -> Option<Vec<CallbackKey>> {
@@ -1174,7 +1172,7 @@ impl Provider for Master {
             .collect()
     }
 
-    async fn process_event(&mut self, event: Event) {
+    fn process_event(&mut self, event: Event) {
         match event {
             Event::InstanceStart { protocol, name } => {
                 instance_start(self, protocol, name);
@@ -1426,15 +1424,16 @@ fn static_nexthop_get(
     interfaces: &Interfaces,
     nexthop: &StaticRouteNexthop,
 ) -> Option<Nexthop> {
-    if let (Some(ifname), Some(addr)) = (&nexthop.ifname, nexthop.addr) {
-        interfaces
-            .get_by_name(ifname)
-            .map(|iface| Nexthop::Address {
-                ifindex: iface.ifindex,
-                addr,
-                labels: Default::default(),
-            })
-    } else {
-        None
-    }
+    let ifname = nexthop.ifname.as_ref()?;
+    let iface = interfaces.get_by_name(ifname)?;
+    let ifindex = iface.ifindex;
+    let nexthop = match nexthop.addr {
+        Some(addr) => Nexthop::Address {
+            ifindex,
+            addr,
+            labels: Default::default(),
+        },
+        None => Nexthop::Interface { ifindex },
+    };
+    Some(nexthop)
 }

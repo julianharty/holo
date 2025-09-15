@@ -11,13 +11,13 @@ use std::collections::{BTreeMap, VecDeque};
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use holo_protocol::{
     InstanceChannelsTx, InstanceShared, MessageReceiver, ProtocolInstance,
 };
 use holo_utils::ibus::IbusMsg;
 use holo_utils::protocol::Protocol;
+use holo_utils::sr::MsdType;
 use holo_utils::task::TimeoutTask;
 use ipnetwork::IpNetwork;
 use prefix_trie::joint::map::JointPrefixMap;
@@ -66,6 +66,8 @@ pub struct Instance {
 pub struct InstanceSys {
     // System Router ID.
     pub router_id: Option<Ipv4Addr>,
+    // Node MSD,
+    pub node_msd: BTreeMap<MsdType, u8>,
     // Redistributed routes.
     pub routes: Levels<JointPrefixMap<IpNetwork, RouteSys>>,
 }
@@ -310,7 +312,6 @@ impl Instance {
     }
 }
 
-#[async_trait]
 impl ProtocolInstance for Instance {
     const PROTOCOL: Protocol = Protocol::ISIS;
 
@@ -319,7 +320,7 @@ impl ProtocolInstance for Instance {
     type ProtocolInputChannelsTx = ProtocolInputChannelsTx;
     type ProtocolInputChannelsRx = ProtocolInputChannelsRx;
 
-    async fn new(
+    fn new(
         name: String,
         shared: InstanceShared,
         tx: InstanceChannelsTx<Instance>,
@@ -337,7 +338,7 @@ impl ProtocolInstance for Instance {
         }
     }
 
-    async fn init(&mut self) {
+    fn init(&mut self) {
         // Request information about the system Router ID.
         ibus::tx::router_id_sub(&self.tx.ibus);
 
@@ -345,14 +346,14 @@ impl ProtocolInstance for Instance {
         ibus::tx::hostname_sub(&self.tx.ibus);
     }
 
-    async fn shutdown(mut self) {
+    fn shutdown(mut self) {
         // Ensure instance is disabled before exiting.
         self.stop(InstanceInactiveReason::AdminDown);
         Debug::InstanceDelete.log();
     }
 
-    async fn process_ibus_msg(&mut self, msg: IbusMsg) {
-        if let Err(error) = process_ibus_msg(self, msg).await {
+    fn process_ibus_msg(&mut self, msg: IbusMsg) {
+        if let Err(error) = process_ibus_msg(self, msg) {
             error.log();
         }
     }
@@ -514,7 +515,6 @@ impl ProtocolInputChannelsTx {
 
 // ===== impl ProtocolInputChannelsRx =====
 
-#[async_trait]
 impl MessageReceiver<ProtocolInputMsg> for ProtocolInputChannelsRx {
     async fn recv(&mut self) -> Option<ProtocolInputMsg> {
         tokio::select! {
@@ -617,7 +617,7 @@ impl InstanceUpView<'_> {
 
 // ===== helper functions =====
 
-async fn process_ibus_msg(
+fn process_ibus_msg(
     instance: &mut Instance,
     msg: IbusMsg,
 ) -> Result<(), Error> {
@@ -632,7 +632,7 @@ async fn process_ibus_msg(
         }
         // Router ID update notification.
         IbusMsg::RouterIdUpdate(router_id) => {
-            ibus::rx::process_router_id_update(instance, router_id).await;
+            ibus::rx::process_router_id_update(instance, router_id);
         }
         // Interface update notification.
         IbusMsg::InterfaceUpd(msg) => {
@@ -680,6 +680,10 @@ async fn process_ibus_msg(
         // SR configuration update.
         IbusMsg::SrCfgUpd(sr_config) => {
             ibus::rx::process_sr_cfg_update(instance, sr_config);
+        }
+        // Node MSD update.
+        IbusMsg::NodeMsdUpd(node_msd) => {
+            ibus::rx::process_msd_update(instance, node_msd);
         }
         // BIER configuration update.
         IbusMsg::BierCfgUpd(bier_config) => {

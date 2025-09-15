@@ -269,9 +269,15 @@ impl ToYang for AdjacencyRejectError {
                 "max-area-addresses-mismatch".into()
             }
             AdjacencyRejectError::AreaMismatch => "area-mismatch".into(),
+            AdjacencyRejectError::NeighborMismatch => {
+                "neighbor-mismatch".into()
+            }
             AdjacencyRejectError::WrongSystem => "wrong-system".into(),
             AdjacencyRejectError::DuplicateSystemId => {
                 "duplicate-system-id".into()
+            }
+            AdjacencyRejectError::MissingProtocolsSupported => {
+                "missing-protocols-supported-tlv".into()
             }
             AdjacencyRejectError::NoCommonMt => "no-common-mt".into(),
         }

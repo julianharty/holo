@@ -13,9 +13,12 @@ use generational_arena::{Arena, Index};
 use holo_northbound::NbDaemonSender;
 use holo_utils::ibus::IbusSender;
 use holo_utils::ip::{AddressFamily, IpAddrKind, Ipv4NetworkExt};
+use holo_utils::mac_addr::MacAddr;
 use holo_utils::southbound::{AddressFlags, InterfaceFlags};
 use ipnetwork::IpNetwork;
+use tokio::sync::mpsc::UnboundedSender;
 
+use crate::netlink::NetlinkRequest;
 use crate::northbound::configuration::InterfaceCfg;
 use crate::{ibus, netlink};
 
@@ -43,7 +46,7 @@ pub struct Interface {
     pub mtu: Option<u32>,
     pub flags: InterfaceFlags,
     pub addresses: BTreeMap<IpNetwork, InterfaceAddress>,
-    pub mac_address: [u8; 6],
+    pub mac_address: MacAddr,
     pub owner: Owner,
     pub vrrp: Option<VrrpHandle>,
     pub subscriptions: HashMap<usize, InterfaceSub>,
@@ -83,19 +86,14 @@ impl Interface {
     //
     // This method should only be called after the interface has been created
     // at the OS-level.
-    async fn apply_config(
+    fn apply_config(
         &self,
         ifindex: u32,
-        netlink_handle: &rtnetlink::Handle,
+        netlink_tx: &UnboundedSender<NetlinkRequest>,
         interfaces: &Interfaces,
     ) {
         // Set administrative status.
-        netlink::admin_status_change(
-            netlink_handle,
-            ifindex,
-            self.config.enabled,
-        )
-        .await;
+        netlink::admin_status_change(netlink_tx, ifindex, self.config.enabled);
 
         // Create VLAN subinterface.
         if let Some(vlan_id) = self.config.vlan_id
@@ -105,23 +103,22 @@ impl Interface {
             && let Some(parent_ifindex) = parent.ifindex
         {
             netlink::vlan_create(
-                netlink_handle,
+                netlink_tx,
                 self.name.clone(),
                 parent_ifindex,
                 vlan_id,
-            )
-            .await;
+            );
         }
 
         // Set MTU.
         if let Some(mtu) = self.config.mtu {
-            netlink::mtu_change(netlink_handle, ifindex, mtu).await;
+            netlink::mtu_change(netlink_tx, ifindex, mtu);
         }
 
         // Install interface addresses.
         for (addr, plen) in &self.config.addr_list {
             let addr = IpNetwork::new(*addr, *plen).unwrap();
-            netlink::addr_install(netlink_handle, ifindex, &addr).await;
+            netlink::addr_install(netlink_tx, ifindex, &addr);
         }
     }
 }
@@ -155,14 +152,14 @@ impl Interfaces {
     }
 
     // Adds or updates the interface with the specified attributes.
-    pub(crate) async fn update(
+    pub(crate) fn update(
         &mut self,
         ifname: String,
         ifindex: u32,
         mtu: u32,
         flags: InterfaceFlags,
-        mac_address: [u8; 6],
-        netlink_handle: &rtnetlink::Handle,
+        mac_address: MacAddr,
+        netlink_tx: &UnboundedSender<NetlinkRequest>,
     ) {
         match self
             .ifindex_tree
@@ -234,7 +231,7 @@ impl Interfaces {
                     iface.ifindex = Some(ifindex);
 
                     let iface = &self.arena[iface_idx];
-                    iface.apply_config(ifindex, netlink_handle, self).await;
+                    iface.apply_config(ifindex, netlink_tx, self);
                 }
             }
             None => {
@@ -269,11 +266,11 @@ impl Interfaces {
     }
 
     // Removes the specified interface identified by its ifindex.
-    pub(crate) async fn remove(
+    pub(crate) fn remove(
         &mut self,
         ifname: &str,
         owner: Owner,
-        netlink_handle: &rtnetlink::Handle,
+        netlink_tx: &UnboundedSender<NetlinkRequest>,
     ) {
         let Some(iface_idx) = self.name_tree.get(ifname).copied() else {
             return;
@@ -287,7 +284,7 @@ impl Interfaces {
         {
             for (addr, plen) in &iface.config.addr_list {
                 let addr = IpNetwork::new(*addr, *plen).unwrap();
-                netlink::addr_uninstall(netlink_handle, ifindex, &addr).await;
+                netlink::addr_uninstall(netlink_tx, ifindex, &addr);
             }
         }
 

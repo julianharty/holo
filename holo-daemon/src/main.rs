@@ -177,7 +177,7 @@ fn signal_listener() -> mpsc::Receiver<()> {
 
 fn build_version() -> String {
     const VERSION: &str = env!("CARGO_PKG_VERSION");
-    match option_env!("GIT_BUILD_HASH") {
+    match rustc_tools_util::get_version_info!().commit_hash {
         Some(hash) => format!("{VERSION} ({hash})"),
         None => VERSION.to_owned(),
     }
@@ -188,7 +188,7 @@ fn build_version() -> String {
 fn main() {
     // Parse command-line parameters.
     let matches = App::new("Holo routing daemon")
-        .version(build_version().as_ref())
+        .version(build_version().as_str())
         .arg(
             Arg::with_name("config")
                 .short("c")
@@ -220,14 +220,6 @@ fn main() {
         error!(%error, "failed to drop root privileges");
         std::process::exit(1);
     }
-
-    // Set panic handler to abort the process if any child task panics.
-    let default_panic = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        error!("process panicked, aborting");
-        default_panic(info);
-        std::process::exit(1);
-    }));
 
     // We're ready to go!
     info!("starting up");

@@ -29,30 +29,26 @@ where
     CallbacksBuilder::<Instance<V>>::default()
         .path(yang::clear_neighbor::PATH)
         .rpc(|instance, args| {
-            Box::pin(async move {
-                let rpc = args.data.find_path(args.rpc_path).unwrap();
+            let rpc = args.data.find_path(args.rpc_path).unwrap();
 
-                // Parse input parameters.
-                let ifname = rpc.get_string_relative("./interface");
+            // Parse input parameters.
+            let ifname = rpc.get_string_relative("./interface");
 
-                // Clear neighbors.
-                if let Some((instance, arenas)) = instance.as_up() {
-                    clear_neighbors(&instance, arenas, ifname);
-                }
+            // Clear neighbors.
+            if let Some((instance, arenas)) = instance.as_up() {
+                clear_neighbors(&instance, arenas, ifname);
+            }
 
-                Ok(())
-            })
+            Ok(())
         })
         .path(yang::clear_database::PATH)
         .rpc(|instance, _args| {
-            Box::pin(async move {
-                // Clear database.
-                if let Some((mut instance, arenas)) = instance.as_up() {
-                    clear_database(&mut instance, arenas);
-                }
+            // Clear database.
+            if let Some((mut instance, arenas)) = instance.as_up() {
+                clear_database(&mut instance, arenas);
+            }
 
-                Ok(())
-            })
+            Ok(())
         })
         .build()
 }
@@ -63,7 +59,7 @@ impl<V> Provider for Instance<V>
 where
     V: Version,
 {
-    fn callbacks() -> Option<&'static Callbacks<Instance<V>>> {
+    fn callbacks() -> &'static Callbacks<Instance<V>> {
         V::rpc_callbacks()
     }
 }
@@ -106,17 +102,17 @@ fn clear_database<V>(
     V: Version,
 {
     // Clear AS-scope LSDB.
-    instance.state.lsdb = Default::default();
+    instance.state.lsdb.clear(&mut arenas.lsa_entries);
 
     for area in arenas.areas.iter_mut() {
         // Clear area-scope LSDB.
-        area.state.lsdb = Default::default();
+        area.state.lsdb.clear(&mut arenas.lsa_entries);
 
         for iface_idx in area.interfaces.indexes() {
             let iface = &mut arenas.interfaces[iface_idx];
 
             // Clear interface-scope LSDB.
-            iface.state.lsdb = Default::default();
+            iface.state.lsdb.clear(&mut arenas.lsa_entries);
 
             // Kill neighbors from this interface.
             for nbr in iface.state.neighbors.iter(&arenas.neighbors) {

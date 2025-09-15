@@ -28,13 +28,11 @@ where
     CallbacksBuilder::<Instance<V>>::default()
         .path(yang::clear_rip_route::PATH)
         .rpc(|instance, _args| {
-            Box::pin(async move {
-                // Clear routes.
-                if let Some((mut instance, _)) = instance.as_up() {
-                    clear_routes(&mut instance);
-                }
-                Ok(())
-            })
+            // Clear routes.
+            if let Some((mut instance, _)) = instance.as_up() {
+                clear_routes(&mut instance);
+            }
+            Ok(())
         })
         .build()
 }
@@ -45,7 +43,7 @@ impl<V> Provider for Instance<V>
 where
     V: Version,
 {
-    fn callbacks() -> Option<&'static Callbacks<Instance<V>>> {
+    fn callbacks() -> &'static Callbacks<Instance<V>> {
         V::rpc_callbacks()
     }
 }

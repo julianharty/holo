@@ -5,6 +5,7 @@
 //
 
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -80,6 +81,49 @@ impl<T> Task<T> {
         }
     }
 
+    /// Spawns a supervised task that automatically restarts if it panics.
+    /// The task will terminate if it completes successfully or returns an
+    /// error.
+    ///
+    /// This is primarily useful for long-running network receive loops that
+    /// may be exposed to malformed or malicious input. In such cases, it is
+    /// often preferable to discard the offending packet and keep the task
+    /// alive, rather than letting a panic bring down the entire routing
+    /// instance.
+    pub fn spawn_supervised<F, Fut>(spawn_fn: F) -> Task<()>
+    where
+        F: Fn() -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let join_handle = tokio::spawn(
+            async move {
+                loop {
+                    let worker_task = Task::spawn(spawn_fn());
+                    match worker_task.await {
+                        Ok(_) => {
+                            // Finished without panic.
+                            break;
+                        }
+                        Err(error) if error.is_panic() => {
+                            error!("task panicked, restarting...");
+                            continue;
+                        }
+                        Err(error) => {
+                            error!(%error, "task failed");
+                            break;
+                        }
+                    }
+                }
+            }
+            .in_current_span(),
+        );
+        Task {
+            join_handle,
+            detached: false,
+        }
+    }
+
     /// Runs the provided closure on a thread where blocking is acceptable.
     pub fn spawn_blocking<F>(f: F) -> Task<T>
     where
@@ -92,10 +136,21 @@ impl<T> Task<T> {
         }
     }
 
-    /// Detach the task, meaning it will no longer be cancelled if its handle is
+    /// Detach the task, meaning it will no longer be canceled if its handle is
     /// dropped.
     pub fn detach(&mut self) {
         self.detached = true;
+    }
+}
+
+impl<T> Future for Task<T> {
+    type Output = Result<T, task::JoinError>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        Pin::new(&mut self.join_handle).poll(cx)
     }
 }
 

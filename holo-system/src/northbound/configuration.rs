@@ -6,7 +6,6 @@
 
 use std::sync::LazyLock as Lazy;
 
-use async_trait::async_trait;
 use holo_northbound::configuration::{
     self, Callbacks, CallbacksBuilder, Provider,
 };
@@ -80,17 +79,16 @@ fn load_callbacks() -> Callbacks<Master> {
 
 // ===== impl Master =====
 
-#[async_trait]
 impl Provider for Master {
     type ListEntry = ListEntry;
     type Event = Event;
     type Resource = Resource;
 
-    fn callbacks() -> Option<&'static Callbacks<Master>> {
-        Some(&CALLBACKS)
+    fn callbacks() -> &'static Callbacks<Master> {
+        &CALLBACKS
     }
 
-    async fn process_event(&mut self, event: Event) {
+    fn process_event(&mut self, event: Event) {
         match event {
             Event::HostnameChange => {
                 for ibus_tx in self.hostname_subscriptions.values() {

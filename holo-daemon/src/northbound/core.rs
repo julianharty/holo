@@ -367,15 +367,11 @@ impl Northbound {
         // Get list of configuration changes.
         let changes = northbound::configuration::changes_from_diff(&diff);
 
-        debug!(?confirmed_timeout, "configuration transaction");
-        trace!(
-            "configuration changes: {}",
-            diff.print_string(
-                DataFormat::JSON,
-                DataPrinterFlags::WITH_SIBLINGS
-            )
-            .unwrap()
-        );
+        // Log configuration transaction.
+        let changes_json = diff
+            .print_string(DataFormat::JSON, DataPrinterFlags::WITH_SIBLINGS)
+            .unwrap();
+        debug!(%confirmed_timeout, changes = %changes_json, "configuration transaction");
 
         // Phase 1: validate configuration and attempt to prepare resources for
         // the transaction.
@@ -578,6 +574,12 @@ impl Northbound {
     ) -> Result<DataTree<'static>> {
         let yang_ctx = YANG_CTX.get().unwrap();
         let mut dtree = DataTree::new(yang_ctx);
+
+        // Log RPC invocation with full JSON-encoded request data.
+        let data_json = data
+            .print_string(DataFormat::JSON, DataPrinterFlags::WITH_SIBLINGS)
+            .unwrap();
+        debug!(data = %data_json, "RPC invocation received");
 
         for daemon_tx in self.providers.iter() {
             // Prepare request.

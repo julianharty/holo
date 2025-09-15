@@ -5,8 +5,6 @@
 //
 
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 
 use holo_utils::yang::SchemaNodeExt;
 use holo_yang::YangPath;
@@ -39,18 +37,12 @@ pub struct CallbackArgs<'a> {
 // Useful type definition(s).
 //
 
-pub type Callback<P> = for<'a> fn(
-    &'a mut P,
-    CallbackArgs<'a>,
-) -> Pin<
-    Box<dyn Future<Output = Result<(), String>> + Send + 'a>,
->;
+pub type Callback<P> =
+    for<'a> fn(&'a mut P, CallbackArgs<'a>) -> Result<(), String>;
 
 // RPC protocol trait.
 pub trait Provider: ProviderBase {
-    fn callbacks() -> Option<&'static Callbacks<Self>> {
-        None
-    }
+    fn callbacks() -> &'static Callbacks<Self>;
 
     fn nested_callbacks() -> Option<Vec<CallbackKey>> {
         None
@@ -143,7 +135,7 @@ where
 
 // ===== helper functions =====
 
-async fn process_rpc_local<P>(
+fn process_rpc_local<P>(
     provider: &mut P,
     mut data: DataTree<'static>,
     rpc_data_path: String,
@@ -152,24 +144,22 @@ async fn process_rpc_local<P>(
 where
     P: Provider,
 {
-    if let Some(callbacks) = P::callbacks() {
+    let callbacks = P::callbacks();
+    let key = CallbackKey::new(rpc_schema_path, CallbackOp::Rpc);
+    if let Some(cb) = callbacks.get(&key) {
         Debug::RpcCallback(&rpc_data_path).log();
-
-        let key = CallbackKey::new(rpc_schema_path, CallbackOp::Rpc);
-        if let Some(cb) = callbacks.get(&key) {
-            let args = CallbackArgs {
-                data: &mut data,
-                rpc_path: &rpc_data_path,
-            };
-            (*cb)(provider, args).await.map_err(Error::RpcCallback)?;
-        }
+        let args = CallbackArgs {
+            data: &mut data,
+            rpc_path: &rpc_data_path,
+        };
+        (*cb)(provider, args).map_err(Error::RpcCallback)?;
     }
 
     let response = api::daemon::RpcResponse { data };
     Ok(response)
 }
 
-async fn process_rpc_relayed(
+fn process_rpc_relayed(
     mut data: DataTree<'static>,
     children_nb_tx: Vec<NbDaemonSender>,
 ) -> Result<api::daemon::RpcResponse, Error> {
@@ -181,12 +171,11 @@ async fn process_rpc_relayed(
             responder: Some(responder_tx),
         };
         nb_tx
-            .send(api::daemon::Request::Rpc(relayed_req))
-            .await
+            .blocking_send(api::daemon::Request::Rpc(relayed_req))
             .unwrap();
 
         // Receive response.
-        let response = responder_rx.await.unwrap()?;
+        let response = responder_rx.blocking_recv().unwrap()?;
         data = response.data;
     }
 
@@ -207,7 +196,7 @@ fn find_rpc<'a>(data: &'a DataTree<'static>) -> Result<DataNodeRef<'a>, Error> {
 
 // ===== global functions =====
 
-pub(crate) async fn process_rpc<P>(
+pub(crate) fn process_rpc<P>(
     provider: &mut P,
     data: DataTree<'static>,
 ) -> Result<api::daemon::RpcResponse, Error>
@@ -221,8 +210,8 @@ where
     if let Some(children_nb_tx) =
         provider.relay_rpc(rpc).map_err(Error::RpcRelay)?
     {
-        process_rpc_relayed(data, children_nb_tx).await
+        process_rpc_relayed(data, children_nb_tx)
     } else {
-        process_rpc_local(provider, data, rpc_data_path, rpc_schema_path).await
+        process_rpc_local(provider, data, rpc_data_path, rpc_schema_path)
     }
 }

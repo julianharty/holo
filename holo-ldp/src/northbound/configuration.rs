@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::LazyLock as Lazy;
 
-use async_trait::async_trait;
 use enum_as_inner::EnumAsInner;
 use holo_northbound::configuration::{
     Callbacks, CallbacksBuilder, Provider, ValidationCallbacks,
@@ -433,7 +432,6 @@ fn load_validation_callbacks() -> ValidationCallbacks {
 
 // ===== impl Instance =====
 
-#[async_trait]
 impl Provider for Instance {
     type ListEntry = ListEntry;
     type Event = Event;
@@ -443,13 +441,13 @@ impl Provider for Instance {
         Some(&VALIDATION_CALLBACKS)
     }
 
-    fn callbacks() -> Option<&'static Callbacks<Instance>> {
-        Some(&CALLBACKS)
+    fn callbacks() -> &'static Callbacks<Instance> {
+        &CALLBACKS
     }
 
-    async fn process_event(&mut self, event: Event) {
+    fn process_event(&mut self, event: Event) {
         match event {
-            Event::InstanceUpdate => self.update().await,
+            Event::InstanceUpdate => self.update(),
             Event::InterfaceUpdate(iface_idx) => {
                 if let Some((mut instance, interfaces, _)) = self.as_up() {
                     let iface = &mut interfaces[iface_idx];

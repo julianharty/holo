@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use derive_new::new;
 use holo_utils::yang::SchemaNodeExt;
 use holo_yang::{YANG_CTX, YangObject, YangPath};
 use tokio::sync::oneshot;
@@ -41,7 +40,7 @@ pub type GetIterateCb<P: Provider> = for<'a, 'b> fn(
     &'a P,
     GetIterateArgs<'a, 'b, P>,
 ) -> Option<
-    Box<dyn Iterator<Item = P::ListEntry<'a>> + 'a>,
+    Box<dyn Iterator<Item = P::ListEntry<'a>> + 'b>,
 >;
 
 #[derive(Debug)]
@@ -62,13 +61,6 @@ pub struct GetObjectArgs<'a, 'b, P: Provider> {
     pub list_entry: &'b P::ListEntry<'a>,
 }
 
-#[derive(Debug, new)]
-struct RelayedRequest {
-    request: api::daemon::GetRequest,
-    tx: NbDaemonSender,
-    rx: oneshot::Receiver<Result<api::daemon::GetResponse, Error>>,
-}
-
 //
 // List entry trait.
 //
@@ -81,16 +73,17 @@ pub trait ListEntryKind: std::fmt::Debug + Default {
     }
 }
 
+// Type aliases.
+type GetReceiver = oneshot::Receiver<Result<api::daemon::GetResponse, Error>>;
+
 //
 // Provider northbound.
 //
 
 pub trait Provider: ProviderBase {
-    type ListEntry<'a>: ListEntryKind + Send;
+    type ListEntry<'a>: ListEntryKind;
 
-    fn callbacks() -> Option<&'static Callbacks<Self>> {
-        None
-    }
+    fn callbacks() -> &'static Callbacks<Self>;
 
     fn nested_callbacks() -> Option<Vec<CallbackKey>> {
         None
@@ -215,11 +208,10 @@ where
 
 fn iterate_node<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &mut DataNodeRef<'_>,
     snode: &SchemaNode<'_>,
     list_entry: &P::ListEntry<'a>,
-    relay_list: &mut Vec<RelayedRequest>,
+    relay_list: &mut Vec<GetReceiver>,
     first: bool,
 ) -> Result<(), Error>
 where
@@ -227,17 +219,15 @@ where
 {
     match snode.kind() {
         SchemaNodeKind::List => {
-            iterate_list(provider, cbs, dnode, snode, list_entry, relay_list)?;
+            iterate_list(provider, dnode, snode, list_entry, relay_list)?;
         }
         SchemaNodeKind::Container => {
             iterate_container(
-                provider, cbs, dnode, snode, list_entry, relay_list, first,
+                provider, dnode, snode, list_entry, relay_list, first,
             )?;
         }
         SchemaNodeKind::Choice | SchemaNodeKind::Case => {
-            iterate_children(
-                provider, cbs, dnode, snode, list_entry, relay_list,
-            )?;
+            iterate_children(provider, dnode, snode, list_entry, relay_list)?;
         }
         _ => (),
     }
@@ -247,15 +237,15 @@ where
 
 fn iterate_list<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &mut DataNodeRef<'_>,
     snode: &SchemaNode<'_>,
     parent_list_entry: &P::ListEntry<'a>,
-    relay_list: &mut Vec<RelayedRequest>,
+    relay_list: &mut Vec<GetReceiver>,
 ) -> Result<(), Error>
 where
     P: Provider,
 {
+    let cbs = P::callbacks();
     let snode_path = snode.data_path();
     let cb_key = CallbackKey::new(snode_path, CallbackOp::GetIterate);
 
@@ -264,9 +254,7 @@ where
             (*cb)(provider, GetIterateArgs { parent_list_entry })
     {
         for list_entry in list_iter {
-            iterate_list_entry(
-                provider, cbs, dnode, snode, list_entry, relay_list,
-            )?;
+            iterate_list_entry(provider, dnode, snode, list_entry, relay_list)?;
         }
     }
 
@@ -275,15 +263,15 @@ where
 
 fn iterate_list_entry<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &mut DataNodeRef<'_>,
     snode: &SchemaNode<'_>,
     list_entry: P::ListEntry<'a>,
-    relay_list: &mut Vec<RelayedRequest>,
+    relay_list: &mut Vec<GetReceiver>,
 ) -> Result<(), Error>
 where
     P: Provider,
 {
+    let cbs = P::callbacks();
     let module = snode.module();
     let snode_path = snode.data_path();
     let cb_key = CallbackKey::new(snode_path, CallbackOp::GetObject);
@@ -319,30 +307,23 @@ where
     };
 
     // Iterate over child nodes.
-    iterate_children(
-        provider,
-        cbs,
-        &mut dnode,
-        snode,
-        &list_entry,
-        relay_list,
-    )?;
+    iterate_children(provider, &mut dnode, snode, &list_entry, relay_list)?;
 
     Ok(())
 }
 
 fn iterate_container<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &mut DataNodeRef<'_>,
     snode: &SchemaNode<'_>,
     list_entry: &P::ListEntry<'a>,
-    relay_list: &mut Vec<RelayedRequest>,
+    relay_list: &mut Vec<GetReceiver>,
     first: bool,
 ) -> Result<(), Error>
 where
     P: Provider,
 {
+    let cbs = P::callbacks();
     let mut dnode = dnode.clone();
     let mut dnode_container;
 
@@ -366,7 +347,7 @@ where
         obj.into_data_node(dnode);
     }
 
-    iterate_children(provider, cbs, dnode, snode, list_entry, relay_list)?;
+    iterate_children(provider, dnode, snode, list_entry, relay_list)?;
 
     // Remove the container node if it was added and remains empty.
     if !first && dnode.children().next().is_none() {
@@ -378,11 +359,10 @@ where
 
 fn iterate_children<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &mut DataNodeRef<'_>,
     snode: &SchemaNode<'_>,
     list_entry: &P::ListEntry<'a>,
-    relay_list: &mut Vec<RelayedRequest>,
+    relay_list: &mut Vec<GetReceiver>,
 ) -> Result<(), Error>
 where
     P: Provider,
@@ -400,24 +380,14 @@ where
         let module = snode.module();
         if let Some(child_nb_tx) = list_entry.child_task(module.name()) {
             // Prepare request to child task.
-            let (responder_tx, responder_rx) = oneshot::channel();
             let path =
                 format!("{}/{}:{}", dnode.path(), module.name(), snode.name());
-            let request = api::daemon::GetRequest {
-                path: Some(path),
-                responder: Some(responder_tx),
-            };
-            relay_list.push(RelayedRequest::new(
-                request,
-                child_nb_tx,
-                responder_rx,
-            ));
+            let relay_rx = relay_request(child_nb_tx, path);
+            relay_list.push(relay_rx);
             continue;
         }
 
-        iterate_node(
-            provider, cbs, dnode, &snode, list_entry, relay_list, false,
-        )?;
+        iterate_node(provider, dnode, &snode, list_entry, relay_list, false)?;
     }
 
     Ok(())
@@ -425,12 +395,12 @@ where
 
 fn lookup_list_entry<'a, P>(
     provider: &'a P,
-    cbs: &Callbacks<P>,
     dnode: &DataNodeRef<'_>,
 ) -> P::ListEntry<'a>
 where
     P: Provider,
 {
+    let cbs = P::callbacks();
     let mut list_entry = Default::default();
 
     // Iterate over parent list entries starting from the root.
@@ -466,15 +436,23 @@ where
             });
 
         // Find the list entry associated to the provided path.
-        if let Some(mut list_iter) = (*cb_iterate)(
-            provider,
-            GetIterateArgs {
-                parent_list_entry: &list_entry,
-            },
-        ) && let Some(entry) = list_iter.find(|entry| {
-            let obj = (*cb_get)(provider, GetObjectArgs { list_entry: entry });
-            list_keys == obj.list_keys()
-        }) {
+        if let Some(entry) = {
+            (*cb_iterate)(
+                provider,
+                GetIterateArgs {
+                    parent_list_entry: &list_entry,
+                },
+            )
+            .and_then(|mut list_iter| {
+                list_iter.find(|entry| {
+                    let obj = (*cb_get)(
+                        provider,
+                        GetObjectArgs { list_entry: entry },
+                    );
+                    list_keys == obj.list_keys()
+                })
+            })
+        } {
             list_entry = entry;
         }
     }
@@ -482,9 +460,24 @@ where
     list_entry
 }
 
+fn relay_request(nb_tx: NbDaemonSender, path: String) -> GetReceiver {
+    let (responder_tx, responder_rx) = oneshot::channel();
+    let request = api::daemon::GetRequest {
+        path: Some(path),
+        responder: Some(responder_tx),
+    };
+    tokio::task::spawn(async move {
+        nb_tx
+            .send(api::daemon::Request::Get(request))
+            .await
+            .unwrap();
+    });
+    responder_rx
+}
+
 // ===== global functions =====
 
-pub(crate) async fn process_get<P>(
+pub(crate) fn process_get<P>(
     provider: &P,
     path: Option<String>,
 ) -> Result<api::daemon::GetResponse, Error>
@@ -496,72 +489,49 @@ where
     let mut dtree = DataTree::new(yang_ctx);
 
     // Populate data tree with path requested by the user.
-    if let Some(cbs) = P::callbacks() {
-        let mut relay_list = vec![];
+    let mut relay_list = vec![];
+    let path = path.unwrap_or(provider.top_level_node());
+    let mut dnode = dtree
+        .new_path(&path, None, false)
+        .map_err(Error::YangInvalidPath)?
+        .unwrap();
+    let list_entry = lookup_list_entry(provider, &dnode);
+    let snode = yang_ctx.find_path(&dnode.schema().data_path()).unwrap();
 
-        let path = path.unwrap_or(provider.top_level_node());
-        let mut dnode = dtree
-            .new_path(&path, None, false)
-            .map_err(Error::YangInvalidPath)?
-            .unwrap();
-        let list_entry = lookup_list_entry(provider, cbs, &dnode);
-        let snode = yang_ctx.find_path(&dnode.schema().data_path()).unwrap();
-
-        // Check if the provider implements the child node.
-        let module = snode.module();
-        if let Some(child_nb_tx) = list_entry.child_task(module.name()) {
-            // Prepare request to child task.
-            let (responder_tx, responder_rx) = oneshot::channel();
-            let request = api::daemon::GetRequest {
-                path: Some(path),
-                responder: Some(responder_tx),
-            };
-            relay_list.push(RelayedRequest::new(
-                request,
-                child_nb_tx,
-                responder_rx,
-            ));
+    // Check if the provider implements the child node.
+    let module = snode.module();
+    if let Some(child_nb_tx) = list_entry.child_task(module.name()) {
+        // Prepare request to child task.
+        let relay_rx = relay_request(child_nb_tx, path);
+        relay_list.push(relay_rx);
+    } else {
+        // If a list entry was given, iterate over that list entry.
+        if snode.kind() == SchemaNodeKind::List {
+            iterate_children(
+                provider,
+                &mut dnode,
+                &snode,
+                &list_entry,
+                &mut relay_list,
+            )?;
         } else {
-            // If a list entry was given, iterate over that list entry.
-            if snode.kind() == SchemaNodeKind::List {
-                iterate_children(
-                    provider,
-                    cbs,
-                    &mut dnode,
-                    &snode,
-                    &list_entry,
-                    &mut relay_list,
-                )?;
-            } else {
-                iterate_node(
-                    provider,
-                    cbs,
-                    &mut dnode,
-                    &snode,
-                    &list_entry,
-                    &mut relay_list,
-                    true,
-                )?;
-            }
+            iterate_node(
+                provider,
+                &mut dnode,
+                &snode,
+                &list_entry,
+                &mut relay_list,
+                true,
+            )?;
         }
+    }
 
-        // Send relayed requests.
-        for relayed_req in relay_list {
-            // Send request to child task.
-            relayed_req
-                .tx
-                .send(api::daemon::Request::Get(relayed_req.request))
-                .await
-                .unwrap();
-
-            // Receive response.
-            let response = relayed_req.rx.await.unwrap()?;
-
-            // Merge received data into the current data tree.
-            dtree
-                .merge(&response.data)
-                .map_err(Error::YangInvalidData)?;
-        }
+    // Collect responses from all relayed requests.
+    for relay_rx in relay_list {
+        let response = relay_rx.blocking_recv().unwrap()?;
+        dtree
+            .merge(&response.data)
+            .map_err(Error::YangInvalidData)?;
     }
 
     Ok(api::daemon::GetResponse { data: dtree })

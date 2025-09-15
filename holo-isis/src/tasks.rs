@@ -61,6 +61,7 @@ use crate::{lsdb, network, spf};
 // IS-IS inter-task message types.
 pub mod messages {
     use bytes::Bytes;
+    use holo_utils::mac_addr::MacAddr;
     use serde::{Deserialize, Serialize};
 
     use crate::collections::{AdjacencyKey, InterfaceKey, LspEntryKey};
@@ -99,7 +100,7 @@ pub mod messages {
         pub struct NetRxPduMsg {
             pub iface_key: InterfaceKey,
             #[serde(default)]
-            pub src: [u8; 6],
+            pub src: MacAddr,
             #[serde(default)]
             pub bytes: Bytes,
             pub pdu: Result<Pdu, DecodeError>,
@@ -214,7 +215,11 @@ pub(crate) fn net_rx(
         let iface_id = iface.id;
         let net_pdu_rxp = net_pdu_rxp.clone();
 
-        Task::spawn(
+        Task::spawn_supervised(move || {
+            let socket = socket.clone();
+            let hello_auth = hello_auth.clone();
+            let global_auth = global_auth.clone();
+            let net_pdu_rxp = net_pdu_rxp.clone();
             async move {
                 let _ = network::read_loop(
                     socket,
@@ -226,8 +231,8 @@ pub(crate) fn net_rx(
                 )
                 .await;
             }
-            .in_current_span(),
-        )
+            .in_current_span()
+        })
     }
     #[cfg(feature = "testing")]
     {

@@ -6,7 +6,6 @@
 
 use std::collections::HashMap;
 
-use async_trait::async_trait;
 use derive_new::new;
 use holo_protocol::{
     InstanceChannelsTx, InstanceShared, MessageReceiver, ProtocolInstance,
@@ -119,7 +118,6 @@ impl Master {
     }
 }
 
-#[async_trait]
 impl ProtocolInstance for Master {
     const PROTOCOL: Protocol = Protocol::BFD;
 
@@ -128,7 +126,7 @@ impl ProtocolInstance for Master {
     type ProtocolInputChannelsTx = ProtocolInputChannelsTx;
     type ProtocolInputChannelsRx = ProtocolInputChannelsRx;
 
-    async fn new(
+    fn new(
         _name: String,
         _shared: InstanceShared,
         tx: InstanceChannelsTx<Master>,
@@ -142,13 +140,13 @@ impl ProtocolInstance for Master {
         }
     }
 
-    async fn init(&mut self) {
+    fn init(&mut self) {
         // Request information about all interfaces.
         self.tx.ibus.interface_sub(None, None);
     }
 
-    async fn process_ibus_msg(&mut self, msg: IbusMsg) {
-        if let Err(error) = process_ibus_msg(self, msg).await {
+    fn process_ibus_msg(&mut self, msg: IbusMsg) {
+        if let Err(error) = process_ibus_msg(self, msg) {
             error.log();
         }
     }
@@ -208,7 +206,6 @@ impl UdpRxTasks {
 
 // ===== impl ProtocolInputChannelsRx =====
 
-#[async_trait]
 impl MessageReceiver<ProtocolInputMsg> for ProtocolInputChannelsRx {
     async fn recv(&mut self) -> Option<ProtocolInputMsg> {
         tokio::select! {
@@ -224,10 +221,7 @@ impl MessageReceiver<ProtocolInputMsg> for ProtocolInputChannelsRx {
 
 // ===== helper functions =====
 
-async fn process_ibus_msg(
-    master: &mut Master,
-    msg: IbusMsg,
-) -> Result<(), Error> {
+fn process_ibus_msg(master: &mut Master, msg: IbusMsg) -> Result<(), Error> {
     match msg {
         // BFD peer registration.
         IbusMsg::BfdSessionReg {
