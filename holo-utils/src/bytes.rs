@@ -340,7 +340,7 @@ mod tests {
                 input_bytes
             );
             assert!(
-                matches!(result, Err(_TryGetError)),
+                matches!(result, Err(_try_get_error)),
                 "Should return TryGetError"
             );
         }
